@@ -1,0 +1,34 @@
+# Every push to main builds, tests and publishes a GitHub release with the installable tarball.
+# Version = major.minor from package.json + the workflow run number as patch (bump minor/major in package.json).
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Set version
+        run: |
+          base=$(node -p "require('./package.json').version.split('.').slice(0, 2).join('.')")
+          echo "VERSION=$base.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "NAME=$(node -p "require('./package.json').name")" >> "$GITHUB_ENV"
+      - run: npm version "$VERSION" --no-git-tag-version
+      # npm pack runs prepare, which typechecks and builds dist/.
+      - run: npm pack && mv "$NAME-$VERSION.tgz" "$NAME.tgz"
+      - run: gh release create "v$VERSION" "$NAME.tgz" --target "$GITHUB_SHA" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

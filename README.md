@@ -22,18 +22,20 @@ Needs Node 20.12 or newer.
 
 ```sh
 # install or update
-npm install -g https://github.com/ali-ahnaf/qa-editor-ui/releases/latest/download/sharebox-qa-editor.tgz
+npm install -g https://github.com/ali-ahnaf/qa-editor-ui/releases/latest/download/qa-editor-ui.tgz
 # start
-sharebox-qa-editor
+qa-editor-ui
 ```
 
-To publish a new version, bump `version` in `package.json`, then run `npm run release`. It builds,
-packs and uploads the tarball as a GitHub release with `gh`. Installing straight from the git URL
-does not work: npm runs the `prepare` build of git dependencies without their devDependencies
-during a global install.
+Every push to `main` (except Markdown-only changes) runs `.github/workflows/release.yml`: it
+tests, builds and publishes a GitHub release. The version is `major.minor` from `package.json`
+plus the workflow run number, so bump `major` or `minor` there by hand when needed.
+
+Installing straight from the git URL does not work: npm runs the `prepare` build of git
+dependencies without their devDependencies during a global install.
 
 On first start it asks for a Claude OAuth token (from `claude setup-token`) and saves it to
-`~/.sharebox-qa-editor.env`. Press Enter to use the machine's Claude Code login instead. Delete
+`~/.qa-editor-ui.env`. Press Enter to use the machine's Claude Code login instead. Delete
 that file to be asked again. The server uses port 3001, or any free port if 3001 is taken, and
 prints the URL. Drafts in localStorage are tied to the port, so they only show up again on the
 same URL.

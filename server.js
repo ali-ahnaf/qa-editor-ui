@@ -10,7 +10,7 @@ import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
-const CONFIG = join(homedir(), '.sharebox-qa-editor.env');
+const CONFIG = join(homedir(), '.qa-editor-ui.env');
 
 try { process.loadEnvFile(); } catch { /* no .env: rely on the shell env or the local Claude Code login */ }
 if (!existsSync(CONFIG) && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY && process.stdin.isTTY) {
