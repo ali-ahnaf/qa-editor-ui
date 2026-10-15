@@ -1,19 +1,14 @@
 #!/usr/bin/env node
 // Serves dist/, generates the report title or summary, and runs the chat assistant with the Claude Agent SDK.
-// Converts report videos to GIF with gif.sh, using the ffmpeg and gifsicle binaries installed from npm.
 // Run `npm run build` first, then `npm start`. Config comes from .env (see .env.example).
-import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { extname, join, normalize, sep } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
-import { promisify } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import ffmpeg from 'ffmpeg-static';
-import gifsicle from 'gifsicle';
 
 const CONFIG = join(homedir(), '.sharebox-qa-editor.env');
 
@@ -40,8 +35,6 @@ const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '127.0.0.1';
 const DIST = join(import.meta.dirname, 'dist');
 const MAX_BODY = 512 * 1024;
-const GIF_SCRIPT = join(import.meta.dirname, 'gif.sh');
-const MAX_VIDEO = 500 * 1024 * 1024;
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',
@@ -137,18 +130,6 @@ async function chat(messages, markdown) {
   return structured(q, 'a chat reply');
 }
 
-/** Runs gif.sh in a temp dir and returns the optimized copy it writes. */
-async function toGif(video) {
-  const dir = await mkdtemp(join(tmpdir(), 'qa-gif-'));
-  try {
-    await writeFile(join(dir, 'in'), video);
-    await promisify(execFile)('bash', [GIF_SCRIPT, 'in'], { cwd: dir, env: { ...process.env, FFMPEG: ffmpeg, GIFSICLE: gifsicle } });
-    return await readFile(join(dir, 'in-optimized.gif'));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
 async function readBody(req, max) {
   let size = 0;
   const chunks = [];
@@ -185,15 +166,11 @@ const validMessages = (m) =>
   m.every((x) => (x?.role === 'user' || x?.role === 'assistant') && typeof x.text === 'string');
 
 const server = createServer(async (req, res) => {
-  if (!['/api/generate', '/api/chat', '/api/gif'].includes(req.url)) {
+  if (!['/api/generate', '/api/chat'].includes(req.url)) {
     return req.method === 'GET' ? serveStatic(req, res) : send(res, 405, { error: 'Method not allowed' });
   }
   if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
   try {
-    if (req.url === '/api/gif') {
-      const gif = await toGif(await readBody(req, MAX_VIDEO));
-      return send(res, 200, { src: 'data:image/gif;base64,' + gif.toString('base64'), size: gif.length });
-    }
     if (req.url === '/api/chat') {
       const { messages, markdown } = await readJson(req);
       if (!validMessages(messages) || typeof markdown !== 'string') return send(res, 400, { error: 'Invalid request.' });

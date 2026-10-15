@@ -287,33 +287,6 @@ const VIDEO_TO_BLOB =
 const FULLSCREEN =
   'document.addEventListener("click",function(e){var m=e.target.closest&&e.target.closest("figure img,figure video");if(!m)return;var d=document;if(d.fullscreenElement||d.webkitFullscreenElement){if(m.tagName=="IMG")(d.exitFullscreen||d.webkitExitFullscreen).call(d);return}var f=m.requestFullscreen||m.webkitRequestFullscreen||m.webkitEnterFullscreen;if(f)f.call(m);else m.classList.toggle("full")})';
 
-/**
- * Swaps each video attachment for a GIF made by the server (`/api/gif` runs the `gif` script).
- * A video that fails to convert stays as it is; `failed` counts them.
- * `onProgress` gets the number of videos finished (converted or failed) after each one.
- */
-export async function videosToGifs(cases: TestCase[], onProgress?: (done: number) => void) {
-  let failed = 0;
-  let done = 0;
-  const toGif = async (a: Attachment): Promise<Attachment> => {
-    if (!a.src || !/^video\//.test(a.type)) return a;
-    try {
-      const video = await (await fetch(a.src)).blob();
-      const res = await fetch('/api/gif', { method: 'POST', body: video });
-      if (!res.ok) throw new Error(res.statusText);
-      const { src, size } = await res.json();
-      return { ...a, name: a.name.replace(/\.[^.]*$/, '') + '.gif', type: 'image/gif', size, src };
-    } catch {
-      failed++;
-      return a;
-    } finally {
-      onProgress?.(++done);
-    }
-  };
-  const out = await Promise.all(cases.map(async (c) => ({ ...c, attachments: await Promise.all(c.attachments.map(toGif)) })));
-  return { cases: out, failed };
-}
-
 export function buildHtml(r: Report, cases: TestCase[], accent: string) {
   const badge = (s: string) => {
     const c = statusColors(s);

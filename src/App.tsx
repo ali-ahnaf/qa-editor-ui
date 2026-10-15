@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   DRAFT_KEY, IMPORT_ACCEPT, addCases, THEMES, buildHtml, buildJiraHtml, buildMarkdown, copyText, downloadFile, fileBase, importText, newCase,
-  slimAttachment, today, uid, videosToGifs, type CaseDraft, type Imported, type Report, type TestCase,
+  slimAttachment, today, uid, type CaseDraft, type Imported, type Report, type TestCase,
 } from './lib';
 import { CheckIcon, CopyIcon, DownloadIcon, FilePicker, ResetIcon, UploadIcon } from './components/ui';
 import Editor from './components/Editor';
@@ -48,7 +48,6 @@ export default function App() {
   const [cases, setCases] = useState(draft.cases);
   const [imported, setImported] = useState<Imported | null>(null);
   const [toast, setToast] = useState('');
-  const [gifProgress, setGifProgress] = useState<{ done: number; total: number } | null>(null);
   const toastTimer = useRef<number>(undefined);
 
   const theme = THEMES.find((t) => t.name === themeName) || THEMES[0];
@@ -83,18 +82,9 @@ export default function App() {
   };
 
   const mediaPending = () => {
-    const pending = !!gifProgress || cases.some((c) => c.attachments.some((a) => a.loading));
+    const pending = cases.some((c) => c.attachments.some((a) => a.loading));
     if (pending) notify('Attachments are still processing. Try again in a moment.');
     return pending;
-  };
-  // Videos go into the HTML report as GIFs. Returns a warning when some stayed as video.
-  const saveHtml = async (file: string) => {
-    const total = cases.reduce((n, c) => n + c.attachments.filter((a) => a.src && /^video\//.test(a.type)).length, 0);
-    if (total) setGifProgress({ done: 0, total });
-    const { cases: withGifs, failed } = await videosToGifs(cases, (done) => setGifProgress({ done, total }));
-    setGifProgress(null);
-    save(file, buildHtml(report, withGifs, theme.accent), 'text/html');
-    return failed ? ` ${failed} video${failed === 1 ? '' : 's'} could not be converted to GIF and stayed as video.` : '';
   };
   // Clipboard can't carry the media, so the full HTML report is downloaded for attaching to the comment.
   const copyForJira = async () => {
@@ -104,15 +94,13 @@ export default function App() {
       buildMarkdown(report, cases, false) + `\n**Full report with attachments:** ${file} (attached)\n`,
       buildJiraHtml(report, cases) + `<p><strong>Full report with attachments:</strong> ${file} (attached)</p>`,
     );
-    const warn = await saveHtml(file);
-    notify((ok ? `Copied and downloaded ${file}. Paste the comment, then attach the file.` : 'Copy blocked here. Open the Markdown tab and copy manually.') + warn);
+    save(file, buildHtml(report, cases, theme.accent), 'text/html');
+    notify(ok ? `Copied and downloaded ${file}. Paste the comment, then attach the file.` : 'Copy blocked here. Open the Markdown tab and copy manually.');
   };
   const exportMd = () => save(fileBase(report) + '.md', buildMarkdown(report, cases, true), 'text/markdown');
-  const exportHtml = async () => {
+  const exportHtml = () => {
     if (mediaPending()) return;
-    const file = fileBase(report) + '.html';
-    const warn = await saveHtml(file);
-    if (warn) notify(`Download started: ${file}.${warn}`);
+    save(fileBase(report) + '.html', buildHtml(report, cases, theme.accent), 'text/html');
   };
 
   const importFile = (file: File | undefined) => {
@@ -252,21 +240,7 @@ export default function App() {
         </div>
       </header>
 
-      {gifProgress ? (
-        <div role="status" className="toast">
-          <span className="spinner" aria-hidden="true" />
-          Converting {gifProgress.total === 1 ? 'video' : `videos (${gifProgress.done} of ${gifProgress.total})`} to GIF...
-          {/* One video has no measurable progress, so the bar is indeterminate. */}
-          <progress
-            className="toast-progress"
-            aria-label="GIF conversion"
-            max={gifProgress.total}
-            value={gifProgress.total > 1 ? gifProgress.done : undefined}
-          />
-        </div>
-      ) : (
-        toast && <div role="status" className="toast">{toast}</div>
-      )}
+      {toast && <div role="status" className="toast">{toast}</div>}
 
       <main className="main">
         {view === 'edit' && (

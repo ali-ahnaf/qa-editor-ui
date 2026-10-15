@@ -18,12 +18,19 @@ npm run build     # typecheck + production build into dist/
 
 ## Install as a command
 
-Needs Node 20.12 or newer and access to the GitHub repo.
+Needs Node 20.12 or newer.
 
 ```sh
-npm install -g git+ssh://git@github.com/<org>/sharebox-qa-editor.git   # install or update
-sharebox-qa-editor                                                     # start
+# install or update
+npm install -g https://github.com/ali-ahnaf/qa-editor-ui/releases/latest/download/sharebox-qa-editor.tgz
+# start
+sharebox-qa-editor
 ```
+
+To publish a new version, bump `version` in `package.json`, then run `npm run release`. It builds,
+packs and uploads the tarball as a GitHub release with `gh`. Installing straight from the git URL
+does not work: npm runs the `prepare` build of git dependencies without their devDependencies
+during a global install.
 
 On first start it asks for a Claude OAuth token (from `claude setup-token`) and saves it to
 `~/.sharebox-qa-editor.env`. Press Enter to use the machine's Claude Code login instead. Delete
@@ -48,14 +55,6 @@ config (read-only tools only). Without one, the link is ignored.
 
 The chat button in the bottom right corner uses the same server (`/api/chat`). Paste test
 cases in any format and ask Claude to add them; returned cases are appended to the report.
-
-## Videos in the HTML export
-
-The HTML export (and the file downloaded by Copy for Jira) embeds videos as GIFs. `server.js` converts
-them with `gif.sh` (10 fps, 600px tall, gifsicle-optimized). The `ffmpeg` and `gifsicle` binaries come
-from the `ffmpeg-static` and `gifsicle` npm packages, so nothing else needs installing. If conversion
-fails, the video is embedded as before. Check the script on its own with `bash gif.sh --test` (that
-uses `ffmpeg` and `gifsicle` from `PATH`).
 
 ## Layout
 
