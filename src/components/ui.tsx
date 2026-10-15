@@ -117,6 +117,17 @@ export const ChatIcon = (p: IconProps) => (
     <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z" />
   </Svg>
 );
+export const CoffeeIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M17 8h1a4 4 0 0 1 0 8h-1" />
+    <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z" />
+    <g className="steam">
+      <path d="M6 6c-1-1 1-2 0-3.5" />
+      <path d="M10 6c-1-1 1-2 0-3.5" />
+      <path d="M14 6c-1-1 1-2 0-3.5" />
+    </g>
+  </Svg>
+);
 export const FileIcon =({ lines, ...p }: IconProps & { lines?: boolean }) => (
   <Svg {...p}>
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />

@@ -102,6 +102,29 @@ textarea { resize: vertical; }
 .chat-form textarea { resize: none; max-height: 160px; }
 .chat-form .btn:disabled { opacity: 0.5; cursor: default; }
 @media (max-width: 480px) { .chat { inset: auto 16px 88px 16px; } }
+.coffee-fab {
+  position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 40; width: 44px; height: 48px;
+  border: 0; border-radius: 10px 0 0 10px; background: var(--accent); color: #ffffff;
+  display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(16, 24, 40, 0.24);
+}
+.steam path { animation: steam 1.8s ease-in-out infinite; }
+.steam path:nth-child(2) { animation-delay: 0.3s; }
+.steam path:nth-child(3) { animation-delay: 0.6s; }
+@keyframes steam {
+  0% { transform: translateY(2px); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateY(-2px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .steam path { animation: none; } }
+.coffee {
+  padding: 0; width: min(340px, calc(100vw - 32px));
+  border: 1px solid #e4e7ec; border-radius: 14px; box-shadow: 0 16px 40px rgba(16, 24, 40, 0.2);
+  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; color: #101828;
+}
+.coffee::backdrop { background: rgba(16, 24, 40, 0.2); }
+.coffee-body { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px 16px; text-align: center; }
+.coffee-logo { height: 40px; }
+.coffee-qr { width: 100%; max-width: 240px; aspect-ratio: 1; object-fit: contain; }
 
 /* ---------- buttons ---------- */
 .btn {

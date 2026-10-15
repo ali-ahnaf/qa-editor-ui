@@ -9,6 +9,7 @@ import ReportView from './components/ReportView';
 import MarkdownView from './components/MarkdownView';
 import Viewer from './components/Viewer';
 import ChatFab from './components/ChatFab';
+import CoffeeFab from './components/CoffeeFab';
 
 type View = 'edit' | 'preview' | 'markdown' | 'viewer';
 const TABS: [View, string][] = [['edit', 'Editor'], ['preview', 'Preview'], ['markdown', 'Markdown'], ['viewer', 'Viewer']];
@@ -264,6 +265,7 @@ export default function App() {
       </main>
 
       <ChatFab markdown={() => buildMarkdown(report, cases, false)} onAddCases={addFromChat} />
+      <CoffeeFab />
     </div>
   );
 }
