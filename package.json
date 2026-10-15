@@ -1,0 +1,41 @@
+{
+  "name": "sharebox-qa-editor",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "sharebox-qa-editor": "server.js"
+  },
+  "files": [
+    "server.js",
+    "gif.sh",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "prepare": "npm run build",
+    "dev": "vite",
+    "server": "node --watch server.js",
+    "start": "node server.js",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.300",
+    "ffmpeg-static": "^5.3.0",
+    "gifsicle": "^7.0.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "vitest": "^4.1.11"
+  }
+}
