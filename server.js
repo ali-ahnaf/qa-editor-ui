@@ -7,27 +7,29 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, join, normalize, sep } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { Writable } from 'node:stream';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 const CONFIG = join(homedir(), '.qa-editor-ui.env');
+// Claude Code model aliases; each resolves to the latest model of that family.
+const MODELS = ['opus', 'sonnet', 'haiku'];
 
+// Auth comes from this machine's Claude Code login, or CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY in the env.
 try { process.loadEnvFile(); } catch { /* no .env: rely on the shell env or the local Claude Code login */ }
-if (!existsSync(CONFIG) && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY && process.stdin.isTTY) {
-  await askToken();
+if (!existsSync(CONFIG) && !process.env.ANTHROPIC_MODEL && process.stdin.isTTY) {
+  await askModel();
 }
 try { process.loadEnvFile(CONFIG); } catch { /* no saved config */ }
+// Unset means the Claude Code default model. .env and the shell env win over CONFIG.
+const MODEL = process.env.ANTHROPIC_MODEL || undefined;
 
-/** First run: asks for a Claude OAuth token and saves it to CONFIG. Enter skips and uses the local Claude Code login. */
-async function askToken() {
-  console.log('Paste a Claude OAuth token (from `claude setup-token`), or press Enter to use this machine\'s Claude Code login.');
-  process.stdout.write('Token (hidden): ');
-  // Muted output so the token is not echoed to the terminal.
-  const rl = createInterface({ input: process.stdin, output: new Writable({ write: (_c, _e, cb) => cb() }), terminal: true });
-  const token = (await rl.question('')).trim();
+/** First run: asks for a model and saves it to CONFIG. Enter keeps the Claude Code default. */
+async function askModel() {
+  console.log('Info: AI features (title, summary, chat) use your existing Claude Code login and its subscription usage.');
+  console.log(`Model:\n  0) Claude Code default\n${MODELS.map((m, i) => `  ${i + 1}) ${m}`).join('\n')}`);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const model = MODELS[Number(await rl.question(`Choose 0-${MODELS.length} [0]: `)) - 1];
   rl.close();
-  process.stdout.write('\n');
-  await writeFile(CONFIG, token ? `CLAUDE_CODE_OAUTH_TOKEN=${token}\n` : '# No token: use the local Claude Code login.\n', { mode: 0o600 });
+  await writeFile(CONFIG, model ? `ANTHROPIC_MODEL=${model}\n` : '# No model: use the Claude Code default.\n', { mode: 0o600 });
   console.log(`Saved to ${CONFIG}. Delete that file to be asked again.`);
 }
 
@@ -57,6 +59,7 @@ async function generate(field, markdown, ticket) {
     prompt: `${ASK[field]}${jira}\n\nThe current report, as Markdown. Replace any existing ${field}:\n\n${markdown}`,
     options: {
       systemPrompt: 'You write concise, factual QA test report text. Use only facts from the report and the Jira ticket. Plain professional English, no em dashes, no emoji, no marketing language.',
+      model: MODEL,
       tools: [],
       settingSources: [],
       // No ticket: skip loading the user's MCP servers entirely.
@@ -110,6 +113,7 @@ async function chat(messages, markdown) {
         '"reply" is a short plain-text answer to the user, no Markdown. When you add cases, say how many and list their IDs.',
         'Use only facts from the user input and the report. Plain professional English, no em dashes, no emoji.',
       ].join(' '),
+      model: MODEL,
       tools: [],
       settingSources: [],
       strictMcpConfig: true,
@@ -186,7 +190,7 @@ const server = createServer(async (req, res) => {
     send(res, e.status || 500, { error: e.message || 'Generation failed.' });
   }
 });
-server.on('listening', () => console.log(`QA editor on http://${HOST}:${server.address().port}`));
+server.on('listening', () => console.log(`QA editor on http://${HOST}:${server.address().port} (model: ${MODEL || 'Claude Code default'})`));
 // An explicit PORT must be free (the Vite dev proxy expects it). Otherwise prefer 3001 so the URL, and
 // the drafts in localStorage tied to it, stay the same; fall back to any free port.
 server.once('error', (e) => {

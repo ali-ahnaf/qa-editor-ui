@@ -34,11 +34,13 @@ plus the workflow run number, so bump `major` or `minor` there by hand when need
 Installing straight from the git URL does not work: npm runs the `prepare` build of git
 dependencies without their devDependencies during a global install.
 
-On first start it asks for a Claude OAuth token (from `claude setup-token`) and saves it to
-`~/.qa-editor-ui.env`. Press Enter to use the machine's Claude Code login instead. Delete
-that file to be asked again. The server uses port 3001, or any free port if 3001 is taken, and
-prints the URL. Drafts in localStorage are tied to the port, so they only show up again on the
-same URL.
+It uses the machine's Claude Code login, so run `claude` and log in once first. On first
+start it asks for a model (opus, sonnet or haiku) and saves it to `~/.qa-editor-ui.env`. Press
+Enter to keep the Claude Code default. Delete that file to be asked again. An
+`ANTHROPIC_MODEL` in `.env` or the shell overrides the saved model.
+
+The server uses port 3001, or any free port if 3001 is taken, and prints the URL and model.
+Drafts in localStorage are tied to the port, so they only show up again on the same URL.
 
 ## AI title and summary
 
@@ -46,7 +48,7 @@ The sparkle buttons on the Report title and Summary fields call `server.js`, whi
 Claude Agent SDK and also serves `dist/`.
 
 ```sh
-cp .env.example .env   # optional: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY
+cp .env.example .env   # optional: CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, ANTHROPIC_MODEL
 npm run build && npm start   # http://127.0.0.1:3001
 ```
 
