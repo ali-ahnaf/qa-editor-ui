@@ -33,6 +33,21 @@ async function askModel() {
   console.log(`Saved to ${CONFIG}. Delete that file to be asked again.`);
 }
 
+const REPO = 'ali-ahnaf/qa-editor-ui';
+
+/** Prints the reinstall command when a newer GitHub release exists. Skipped in a git checkout; errors are ignored. */
+async function checkUpdate() {
+  if (existsSync(join(import.meta.dirname, '.git'))) return;
+  try {
+    const { version } = JSON.parse(await readFile(join(import.meta.dirname, 'package.json'), 'utf8'));
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { signal: AbortSignal.timeout(3000) });
+    const latest = (await res.json()).tag_name?.replace(/^v/, '');
+    if (latest && latest !== version) {
+      console.log(`Update available: ${version} -> ${latest}. Stop the app and run:\n  npm install -g https://github.com/${REPO}/releases/latest/download/qa-editor-ui.tgz`);
+    }
+  } catch { /* offline or rate limited: skip the check */ }
+}
+
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || '127.0.0.1';
 const DIST = join(import.meta.dirname, 'dist');
@@ -190,7 +205,10 @@ const server = createServer(async (req, res) => {
     send(res, e.status || 500, { error: e.message || 'Generation failed.' });
   }
 });
-server.on('listening', () => console.log(`QA editor on http://${HOST}:${server.address().port} (model: ${MODEL || 'Claude Code default'})`));
+server.on('listening', () => {
+  console.log(`QA editor on http://${HOST}:${server.address().port} (model: ${MODEL || 'Claude Code default'})`);
+  checkUpdate();
+});
 // An explicit PORT must be free (the Vite dev proxy expects it). Otherwise prefer 3001 so the URL, and
 // the drafts in localStorage tied to it, stay the same; fall back to any free port.
 server.once('error', (e) => {

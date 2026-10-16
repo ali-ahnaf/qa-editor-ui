@@ -39,6 +39,9 @@ start it asks for a model (opus, sonnet or haiku) and saves it to `~/.qa-editor-
 Enter to keep the Claude Code default. Delete that file to be asked again. An
 `ANTHROPIC_MODEL` in `.env` or the shell overrides the saved model.
 
+On start it checks the latest GitHub release and, when it is newer, prints the install command
+above to update. The check is skipped when running from a git checkout.
+
 The server uses port 3001, or any free port if 3001 is taken, and prints the URL and model.
 Drafts in localStorage are tied to the port, so they only show up again on the same URL.
 
