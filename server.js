@@ -90,14 +90,26 @@ async function generate(field, markdown, ticket) {
       persistSession: false,
     },
   });
-  return (await structured(q, `${field} text`)).text.trim();
+  return (await structured(q, `${field} text`, (text) => ({ text }))).text.trim();
 }
 
-/** Returns the structured output of a query run, or throws. */
-async function structured(q, what) {
+/**
+ * Returns the structured output of a query run, or throws. Some models or gateways answer in plain text
+ * instead of calling the StructuredOutput tool: then the text is parsed as JSON, else passed to fallback.
+ */
+async function structured(q, what, fallback) {
   for await (const msg of q) {
     if (msg.type !== 'result') continue;
     if (msg.subtype === 'success' && msg.structured_output) return msg.structured_output;
+    const text = msg.subtype === 'success' ? msg.result?.trim() : '';
+    if (text) {
+      try {
+        const json = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+        if (json && typeof json === 'object') return { ...fallback(''), ...json };
+      } catch { /* plain text */ }
+      return fallback(text);
+    }
+    console.error('Result without output:', JSON.stringify({ subtype: msg.subtype, result: msg.result, errors: msg.errors }));
     throw new Error(`Claude did not return ${what} (${msg.subtype}).`);
   }
   throw new Error('Claude ended without a result.');
@@ -146,7 +158,7 @@ async function chat(messages, markdown) {
       persistSession: false,
     },
   });
-  return structured(q, 'a chat reply');
+  return structured(q, 'a chat reply', (reply) => ({ reply, cases: [] }));
 }
 
 async function readBody(req, max) {
