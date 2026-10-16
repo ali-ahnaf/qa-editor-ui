@@ -3,7 +3,7 @@ import {
   DRAFT_KEY, IMPORT_ACCEPT, addCases, THEMES, buildHtml, buildJiraHtml, buildMarkdown, copyText, downloadFile, fileBase, importText, newCase,
   slimAttachment, today, uid, type CaseDraft, type Imported, type Report, type TestCase,
 } from './lib';
-import { CheckIcon, CopyIcon, DownloadIcon, FilePicker, ResetIcon, UploadIcon } from './components/ui';
+import { CopyIcon, DownloadIcon, FilePicker, ResetIcon, UploadIcon } from './components/ui';
 import Editor from './components/Editor';
 import ReportView from './components/ReportView';
 import MarkdownView from './components/MarkdownView';
@@ -186,9 +186,7 @@ export default function App() {
     <div className="app" style={themeVars}>
       <header className="topbar">
         <div className="brand">
-          <div className="brand-logo">
-            <CheckIcon size={20} stroke="#FFFFFF" />
-          </div>
+          <img src="/matrix-mark.svg" alt="" className="brand-logo" />
           <div className="brand-text">
             <span className="brand-name">Test Report Studio</span>
             <span className="text-12 muted">Write, attach and export QA results for Jira</span>

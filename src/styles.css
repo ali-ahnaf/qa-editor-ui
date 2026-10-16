@@ -54,10 +54,7 @@ textarea { resize: vertical; }
   justify-content: space-between;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-logo {
-  width: 36px; height: 36px; border-radius: 10px; background: var(--accent);
-  display: flex; align-items: center; justify-content: center;
-}
+.brand-logo { width: 36px; height: 36px; }
 .brand-text { display: flex; flex-direction: column; }
 .brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
 .tabs { display: flex; gap: 4px; background: #f2f4f7; padding: 4px; border-radius: 10px; flex-wrap: wrap; }
