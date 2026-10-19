@@ -3,34 +3,49 @@
 // Run `npm run build` first, then `npm start`. Config comes from .env (see .env.example).
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, join, normalize, sep } from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 const CONFIG = join(homedir(), '.qa-editor-ui.env');
 // Claude Code model aliases; each resolves to the latest model of that family.
 const MODELS = ['opus', 'sonnet', 'haiku'];
 
-// Auth comes from this machine's Claude Code login, or CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY in the env.
-try { process.loadEnvFile(); } catch { /* no .env: rely on the shell env or the local Claude Code login */ }
-if (!existsSync(CONFIG) && !process.env.ANTHROPIC_MODEL && process.stdin.isTTY) {
-  await askModel();
-}
+// Auth comes from CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_API_KEY in the env, else this machine's Claude Code login.
+// The SDK passes process.env to Claude Code, so values loaded here reach it. .env and the shell env win over CONFIG.
+const DOTENV = join(process.cwd(), '.env');
+try { process.loadEnvFile(DOTENV); } catch { /* no .env: rely on CONFIG, the shell env or the local Claude Code login */ }
 try { process.loadEnvFile(CONFIG); } catch { /* no saved config */ }
-// Unset means the Claude Code default model. .env and the shell env win over CONFIG.
+console.log(`Env files: ${DOTENV} (${existsSync(DOTENV) ? 'found' : 'not found'}), ${CONFIG} (${existsSync(CONFIG) ? 'found' : 'not found'})`);
+if (process.stdin.isTTY) await askMissing();
+// Empty means the Claude Code default model.
 const MODEL = process.env.ANTHROPIC_MODEL || undefined;
 
-/** First run: asks for a model and saves it to CONFIG. Enter keeps the Claude Code default. */
-async function askModel() {
-  console.log('Info: AI features (title, summary, chat) use your existing Claude Code login and its subscription usage.');
-  console.log(`Model:\n  0) Claude Code default\n${MODELS.map((m, i) => `  ${i + 1}) ${m}`).join('\n')}`);
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const model = MODELS[Number(await rl.question(`Choose 0-${MODELS.length} [0]: `)) - 1];
-  rl.close();
-  await writeFile(CONFIG, model ? `ANTHROPIC_MODEL=${model}\n` : '# No model: use the Claude Code default.\n', { mode: 0o600 });
-  console.log(`Saved to ${CONFIG}. Delete that file to be asked again.`);
+/** Asks for a model and OAuth token when they are not set anywhere, and appends the answers to CONFIG. */
+async function askMissing() {
+  let saved = '';
+  if (process.env.ANTHROPIC_MODEL === undefined) {
+    console.log(`Model:\n  0) Claude Code default\n${MODELS.map((m, i) => `  ${i + 1}) ${m}`).join('\n')}`);
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    process.env.ANTHROPIC_MODEL = MODELS[Number(await rl.question(`Choose 0-${MODELS.length} [0]: `)) - 1] || '';
+    rl.close();
+    saved += `ANTHROPIC_MODEL=${process.env.ANTHROPIC_MODEL}\n`;
+  }
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN === undefined && !process.env.ANTHROPIC_API_KEY) {
+    // Muted output with terminal mode on: readline handles raw input, so the token is not echoed.
+    const rl = createInterface({ input: process.stdin, output: new Writable({ write: (_c, _e, cb) => cb() }), terminal: true });
+    process.stdout.write('OAuth token from `claude setup-token` (input hidden, Enter to use the Claude Code login): ');
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = (await rl.question('')).trim();
+    rl.close();
+    process.stdout.write('\n');
+    saved += `CLAUDE_CODE_OAUTH_TOKEN=${process.env.CLAUDE_CODE_OAUTH_TOKEN}\n`;
+  }
+  if (!saved) return;
+  await appendFile(CONFIG, saved, { mode: 0o600 });
+  console.log(`Saved to ${CONFIG}. Edit or delete that file to change it.`);
 }
 
 const REPO = 'ali-ahnaf/qa-editor-ui';
@@ -126,7 +141,18 @@ const CASE_SCHEMA = {
   additionalProperties: false,
 };
 
-/** Chat turn. Returns a reply and any test cases Claude wants added to the report. */
+const CASE_FIELDS = ['caseId', 'title', 'status', 'steps', 'expected', 'actual', 'notes'];
+const REPORT_FIELDS = ['title', 'ticket', 'build', 'env', 'tester', 'date', 'summary'];
+const EDIT_SCHEMA = {
+  type: 'object',
+  properties: {
+    target: { type: 'string' }, field: { type: 'string', enum: [...new Set([...CASE_FIELDS, ...REPORT_FIELDS])] }, value: { type: 'string' },
+  },
+  required: ['target', 'field', 'value'],
+  additionalProperties: false,
+};
+
+/** Chat turn. Returns a reply, test cases to add, edits to existing cases or report fields, and case IDs to remove. */
 async function chat(messages, markdown) {
   const transcript = messages.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text}`).join('\n\n');
   const q = query({
@@ -137,7 +163,10 @@ async function chat(messages, markdown) {
         'When the user pastes test cases or asks you to create them, convert them into structured test cases and return them in "cases"; the app appends them to the report.',
         'Each case: caseId (continue the TC-NN numbering after the cases already in the report unless the user gives IDs), a short title, status (Pending unless the input states a result), steps as one step per line without numbering, expected result, actual result and notes (empty string when unknown).',
         'Do not repeat cases that are already in the report. Return "cases" as an empty array when nothing should be added.',
-        '"reply" is a short plain-text answer to the user, no Markdown. When you add cases, say how many and list their IDs.',
+        'You can edit the report. To change an existing case, add to "edits" one entry per changed field: target is the case ID (for example TC-02), field is one of caseId, title, status, steps, expected, actual, notes, and value is the full new text of that field.',
+        'To change a report field, use target "report" with field title, ticket, build, env, tester, date or summary. Status must be one of: ' + STATUSES.join(', ') + '.',
+        'To delete cases, list their case IDs in "remove". Leave "edits" and "remove" empty when nothing should change. Never claim you cannot edit the report.',
+        '"reply" is a short plain-text answer to the user, no Markdown. Say what you added, changed or removed, with case IDs.',
         'Use only facts from the user input and the report. Plain professional English, no em dashes, no emoji.',
       ].join(' '),
       model: MODEL,
@@ -149,8 +178,13 @@ async function chat(messages, markdown) {
         type: 'json_schema',
         schema: {
           type: 'object',
-          properties: { reply: { type: 'string' }, cases: { type: 'array', items: CASE_SCHEMA } },
-          required: ['reply', 'cases'],
+          properties: {
+            reply: { type: 'string' },
+            cases: { type: 'array', items: CASE_SCHEMA },
+            edits: { type: 'array', items: EDIT_SCHEMA },
+            remove: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['reply', 'cases', 'edits', 'remove'],
           additionalProperties: false,
         },
       },
@@ -158,7 +192,7 @@ async function chat(messages, markdown) {
       persistSession: false,
     },
   });
-  return structured(q, 'a chat reply', (reply) => ({ reply, cases: [] }));
+  return structured(q, 'a chat reply', (reply) => ({ reply, cases: [], edits: [], remove: [] }));
 }
 
 async function readBody(req, max) {

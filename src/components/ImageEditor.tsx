@@ -1,19 +1,35 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import type { Attachment } from '../lib';
-import { ArrowToolIcon, CloseIcon, EditIcon, RedoIcon, TextIcon, UndoIcon } from './ui';
+import { ArrowToolIcon, CloseIcon, CropIcon, EditIcon, RectIcon, RedoIcon, TextIcon, UndoIcon } from './ui';
 
 type Pt = [number, number];
-type Shape =
+export type Shape =
   | { kind: 'pen'; color: string; width: number; points: Pt[] }
   | { kind: 'arrow'; color: string; width: number; points: [Pt, Pt] }
-  | { kind: 'text'; color: string; size: number; at: Pt; text: string };
+  | { kind: 'rect'; color: string; width: number; points: [Pt, Pt] }
+  | { kind: 'text'; color: string; size: number; at: Pt; text: string }
+  | { kind: 'crop'; points: [Pt, Pt] };
 type Tool = Shape['kind'];
+type Rect = [x: number, y: number, w: number, h: number];
 
 const TOOLS: { tool: Tool; label: string; Icon: typeof EditIcon }[] = [
   { tool: 'pen', label: 'Pen', Icon: EditIcon },
   { tool: 'arrow', label: 'Arrow', Icon: ArrowToolIcon },
+  { tool: 'rect', label: 'Rectangle', Icon: RectIcon },
   { tool: 'text', label: 'Text', Icon: TextIcon },
+  { tool: 'crop', label: 'Crop', Icon: CropIcon },
 ];
+
+// The last crop in the history wins, so undo restores the previous crop. Even sizes keep video encoders happy.
+export function cropRect(shapes: Shape[], w: number, h: number): Rect {
+  const c = [...shapes].reverse().find((s) => s.kind === 'crop');
+  if (!c) return [0, 0, w, h];
+  const [[x1, y1], [x2, y2]] = c.points;
+  const x = Math.round(Math.max(0, Math.min(x1, x2)));
+  const y = Math.round(Math.max(0, Math.min(y1, y2)));
+  const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
+  return [x, y, even(Math.min(w, Math.max(x1, x2)) - x), even(Math.min(h, Math.max(y1, y2)) - y)];
+}
 
 // ponytail: full redraw on every pointer move; fine for screenshots, cache the base layer if huge images lag.
 function draw(ctx: CanvasRenderingContext2D, img: CanvasImageSource, shapes: Shape[]) {
@@ -21,6 +37,7 @@ function draw(ctx: CanvasRenderingContext2D, img: CanvasImageSource, shapes: Sha
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   for (const s of shapes) {
+    if (s.kind === 'crop') continue;
     ctx.strokeStyle = ctx.fillStyle = s.color;
     if (s.kind === 'text') {
       ctx.font = `600 ${s.size}px ui-sans-serif, system-ui, sans-serif`;
@@ -29,6 +46,11 @@ function draw(ctx: CanvasRenderingContext2D, img: CanvasImageSource, shapes: Sha
       continue;
     }
     ctx.lineWidth = s.width;
+    if (s.kind === 'rect') {
+      const [[x1, y1], [x2, y2]] = s.points;
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      continue;
+    }
     ctx.beginPath();
     ctx.moveTo(...s.points[0]);
     s.points.forEach((p) => ctx.lineTo(...p));
@@ -50,7 +72,7 @@ const dims = (m: Media) => (m instanceof HTMLVideoElement ? [m.videoWidth, m.vid
 
 // Burns the shapes into every frame by playing the video into a canvas and recording it, so it takes as long as the video.
 // ponytail: real-time re-encode with MediaRecorder (slows down in a background tab); use WebCodecs if long videos need it.
-function recordVideo(src: string, w: number, h: number, shapes: Shape[], onProgress: (p: number) => void, signal: AbortSignal) {
+function recordVideo(src: string, [x, y, w, h]: Rect, shapes: Shape[], onProgress: (p: number) => void, signal: AbortSignal) {
   return new Promise<Blob>((resolve, reject) => {
     const v = document.createElement('video');
     v.playsInline = true;
@@ -59,6 +81,7 @@ function recordVideo(src: string, w: number, h: number, shapes: Shape[], onProgr
     cv.width = w;
     cv.height = h;
     const ctx = cv.getContext('2d')!;
+    ctx.translate(-x, -y);
     // Route the sound through Web Audio so it is recorded but not played out loud.
     const ac = new AudioContext();
     const sound = ac.createMediaStreamDestination();
@@ -147,7 +170,22 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
       cv.width = w;
       cv.height = h;
     }
-    draw(cv.getContext('2d')!, img, current ? [...shapes, current] : shapes);
+    const all = current ? [...shapes, current] : shapes;
+    const ctx = cv.getContext('2d')!;
+    draw(ctx, img, all);
+    // Dims everything outside the crop; the full image stays visible so the crop can be redrawn.
+    const [x, y, cw, ch] = cropRect(all, w, h);
+    if (cw === w && ch === h) return;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.rect(x, y, cw, ch);
+    ctx.fill('evenodd');
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1, w / 800);
+    ctx.setLineDash([ctx.lineWidth * 6, ctx.lineWidth * 4]);
+    ctx.strokeRect(x, y, cw, ch);
+    ctx.setLineDash([]);
   }, [img, shapes, current]);
 
   // Stroke and font sizes follow the image size, so a 4K screenshot gets marks as visible as a small one.
@@ -210,7 +248,11 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
     const p = toImage(e);
     e.currentTarget.setPointerCapture(e.pointerId);
     const width = size * unit;
-    setCurrent(tool === 'pen' ? { kind: 'pen', color, width, points: [p.at] } : { kind: 'arrow', color, width, points: [p.at, p.at] });
+    setCurrent(
+      tool === 'pen' ? { kind: 'pen', color, width, points: [p.at] }
+        : tool === 'crop' ? { kind: 'crop', points: [p.at, p.at] }
+          : { kind: tool, color, width, points: [p.at, p.at] },
+    );
   };
   const onMove = (e: PointerEvent<HTMLCanvasElement>) => {
     if (!current || current.kind === 'text') return;
@@ -218,17 +260,20 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
     setCurrent(current.kind === 'pen' ? { ...current, points: [...current.points, at] } : { ...current, points: [current.points[0], at] });
   };
   const onUp = () => {
-    if (current) add(current);
+    // A click without a drag would crop to nothing, so it is ignored.
+    const tiny = current?.kind === 'crop' && current.points[0].some((n, i) => Math.abs(n - current.points[1][i]) < 8);
+    if (current && !tiny) add(current);
     setCurrent(null);
   };
 
   const save = () => {
     const cv = canvasRef.current;
     if (!cv || !img) return;
+    const rect = cropRect(shapes, cv.width, cv.height);
     if (isVideo) {
       render.current = new AbortController();
       setProgress(0);
-      recordVideo(a.src, cv.width, cv.height, shapes, setProgress, render.current.signal)
+      recordVideo(a.src, rect, shapes, setProgress, render.current.signal)
         .then((blob) => {
           const fr = new FileReader();
           fr.onload = () => onSave(String(fr.result), blob.type);
@@ -243,7 +288,13 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
     }
     // Canvas can't write GIF; anything that isn't JPEG becomes PNG.
     const type = a.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
-    onSave(cv.toDataURL(type, 0.92), type);
+    // Renders again off-screen so the crop dimming isn't saved.
+    const out = document.createElement('canvas');
+    [, , out.width, out.height] = rect;
+    const ctx = out.getContext('2d')!;
+    ctx.translate(-rect[0], -rect[1]);
+    draw(ctx, img, shapes);
+    onSave(out.toDataURL(type, 0.92), type);
   };
 
   return (

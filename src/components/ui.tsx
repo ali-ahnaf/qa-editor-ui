@@ -188,9 +188,19 @@ export const ArrowToolIcon = (p: IconProps) => (
     <path d="M5 19L19 5M9 5h10v10" />
   </Svg>
 );
+export const RectIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="6" width="16" height="12" rx="1" />
+  </Svg>
+);
 export const TextIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 7V5h16v2M12 5v14M9 19h6" />
+  </Svg>
+);
+export const CropIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" />
   </Svg>
 );
 export const UndoIcon = (p: IconProps) => (

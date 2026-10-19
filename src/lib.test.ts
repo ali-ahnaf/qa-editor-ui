@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { addCases, buildJiraHtml, buildMarkdown, importText, newCase, overall, type Report, type TestCase } from './lib';
+import { addCases, applyChatCases, applyChatReport, buildJiraHtml, buildMarkdown, crc32, exportName, importText, newCase, overall, type Report, type TestCase } from './lib';
 
 const report: Report = { title: 'Checkout', ticket: 'https://x.atlassian.net/browse/PROJ-12', build: '', env: 'Staging', tester: 'QA', date: '2026-10-15', summary: 'Ok' };
 const tc = (status: TestCase['status'], extra: Partial<TestCase> = {}): TestCase => ({ ...newCase(1), status, ...extra });
@@ -19,6 +19,7 @@ test('markdown export with embedded data round-trips through import', () => {
   expect(md).toContain('**Ticket:** [PROJ-12](https://x.atlassian.net/browse/PROJ-12)');
   expect(md).toContain('| TC-01 | Pay \\| card | Failed | 1 |');
   expect(md).toContain('1. Open\n2. Pay');
+  expect(md).toContain('![01-tc-01-1-shot.png](01-tc-01-1-shot.png)');
 
   const imp = importText('r.md', md);
   if (!imp.isReport) throw new Error('expected report');
@@ -50,4 +51,29 @@ test('jira html wraps each case in an expand titled with the case', () => {
   expect(html).toContain('<div data-node-type="expand" data-title="TC-01: Pay &quot;card&quot; &lt;x&gt;"><p><strong>Status:</strong> FAILED</p>');
   expect(html).toContain('<ol><li>Open</li></ol></div>');
   expect(html).toContain('<td>Pay &quot;card&quot; &lt;x&gt;</td><td>❌</td>');
+});
+
+test('attachment export names and crc32', () => {
+  const a = { id: 'a', name: 'Login Error.MOV', type: 'video/quicktime', size: 1, src: '' };
+  expect(exportName(tc('Failed'), 3, 1, a)).toBe('03-tc-01-2-login-error.mov');
+  expect(exportName(tc('Failed', { caseId: '' }), 12, 0, { ...a, name: 'clip' })).toBe('12-1-clip.quicktime');
+  expect(crc32(new TextEncoder().encode('hello'))).toBe(0x3610a686);
+});
+
+test('chat result edits, removes and adds cases and edits report fields', () => {
+  const cases = [tc('Pending', { caseId: 'TC-01', title: 'A' }), tc('Pending', { caseId: 'TC-02', title: 'B' })];
+  const r = {
+    edits: [
+      { target: 'tc-01', field: 'status', value: 'Passed' },
+      { target: 'TC-01', field: 'title', value: 'A2' },
+      { target: 'TC-01', field: 'status', value: 'Bogus' },
+      { target: 'report', field: 'summary', value: 'New summary' },
+      { target: 'report', field: 'attachments', value: 'x' },
+    ],
+    remove: ['TC-02'],
+    cases: [{ title: 'C' }],
+  };
+  const out = applyChatCases(cases, r);
+  expect(out.map((c) => [c.caseId, c.title, c.status])).toEqual([['TC-01', 'A2', 'Passed'], ['TC-02', 'C', 'Pending']]);
+  expect(applyChatReport(report, r)).toEqual({ ...report, summary: 'New summary' });
 });

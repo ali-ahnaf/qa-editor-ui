@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { STATUS, STATUS_ORDER, fileSize, type Attachment, type TestCase } from '../lib';
 import ImageEditor from './ImageEditor';
 import {
-  ArrowDownIcon, ArrowUpIcon, Badge, ChevronIcon, CloseIcon, CopyIcon, EditIcon, FilePicker, ImageIcon, TrashIcon,
+  ArrowDownIcon, ArrowUpIcon, Badge, ChevronIcon, CloseIcon, CopyIcon, DownloadIcon, EditIcon, FilePicker, ImageIcon, TrashIcon,
 } from './ui';
 
 interface Props {
@@ -156,6 +156,17 @@ export default function CaseCard({ c, num, patch, onMoveUp, onMoveDown, onDuplic
                         {ready && !isVideo && <img src={a.src} alt={a.name} />}
                         {ready && isVideo && <video src={a.src} controls muted />}
                         {!ready && <span className="thumb-pending">{a.loading ? 'Processing...' : 'Re-attach file'}</span>}
+                        {ready && (
+                          <a
+                            className="icon-btn icon-btn-sm thumb-download"
+                            href={a.src}
+                            download={a.name}
+                            aria-label={`Download ${a.name}`}
+                            title="Download"
+                          >
+                            <DownloadIcon size={14} />
+                          </a>
+                        )}
                       </div>
                       <figcaption className="thumb-caption">
                         <span className="thumb-text">

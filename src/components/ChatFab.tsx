@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CaseDraft } from '../lib';
+import type { ChatResult } from '../lib';
 import { ChatIcon, CloseIcon } from './ui';
 
 interface Message { role: 'user' | 'assistant'; text: string }
 
 interface Props {
   markdown: () => string;
-  onAddCases: (cases: CaseDraft[]) => void;
+  onResult: (result: ChatResult) => void;
 }
 
-/** Floating button that opens a chat with Claude. Cases Claude returns are added to the report. */
-export default function ChatFab({ markdown, onAddCases }: Props) {
+/** Floating button that opens a chat with Claude. Cases, edits and removals Claude returns are applied to the report. */
+export default function ChatFab({ markdown, onResult }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const log = useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -37,7 +37,9 @@ export default function ChatFab({ markdown, onAddCases }: Props) {
       });
       const data = await res.json().catch(() => ({ error: 'The chat server is not running. Start it with npm start.' }));
       if (!res.ok) throw new Error(data.error);
-      if (Array.isArray(data.cases) && data.cases.length) onAddCases(data.cases);
+      const pick = (v: unknown) => (Array.isArray(v) ? v : []);
+      const result = { cases: pick(data.cases), edits: pick(data.edits), remove: pick(data.remove) };
+      if (result.cases.length || result.edits.length || result.remove.length) onResult(result);
       setMessages((m) => [...m, { role: 'assistant', text: String(data.reply || '') }]);
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', text: 'Error: ' + (e instanceof Error ? e.message : 'Chat failed') }]);
@@ -65,7 +67,7 @@ export default function ChatFab({ markdown, onAddCases }: Props) {
         </div>
         <div ref={log} className="chat-log" aria-live="polite">
           {!messages.length && (
-            <p className="text-13 muted m0">Paste test cases in any format and ask Claude to add them to the report.</p>
+            <p className="text-13 muted m0">Paste test cases in any format and ask Claude to add them, or ask it to edit or remove cases and report fields.</p>
           )}
           {messages.map((m, i) => (
             <p key={i} className={'chat-msg pre-line ' + m.role}>{m.text}</p>

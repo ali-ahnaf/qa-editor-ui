@@ -34,10 +34,12 @@ plus the workflow run number, so bump `major` or `minor` there by hand when need
 Installing straight from the git URL does not work: npm runs the `prepare` build of git
 dependencies without their devDependencies during a global install.
 
-It uses the machine's Claude Code login, so run `claude` and log in once first. On first
-start it asks for a model (opus, sonnet or haiku) and saves it to `~/.qa-editor-ui.env`. Press
-Enter to keep the Claude Code default. Delete that file to be asked again. An
-`ANTHROPIC_MODEL` in `.env` or the shell overrides the saved model.
+On start it prints the env files it reads (`./.env` and `~/.qa-editor-ui.env`). When no model
+or token is set in either file or the shell, it asks for a model (opus, sonnet or haiku) and an
+OAuth token from `claude setup-token` (input hidden), and saves them to `~/.qa-editor-ui.env`.
+Press Enter to keep the Claude Code default model, or to use this machine's Claude Code login
+instead of a token. Edit or delete that file to change them. Values in `.env` or the shell
+override the saved ones.
 
 On start it checks the latest GitHub release and, when it is newer, prints the install command
 above to update. The check is skipped when running from a git checkout.

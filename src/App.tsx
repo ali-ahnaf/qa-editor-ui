@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
-  DRAFT_KEY, IMPORT_ACCEPT, addCases, THEMES, buildHtml, buildJiraHtml, buildMarkdown, copyText, downloadFile, fileBase, importText, newCase,
-  slimAttachment, today, uid, type CaseDraft, type Imported, type Report, type TestCase,
+  DRAFT_KEY, IMPORT_ACCEPT, applyChatCases, applyChatReport, THEMES, buildHtml, buildJiraHtml, buildMarkdown, copyText, downloadFile, exportName, fileBase, importText, newCase,
+  slimAttachment, zip, today, uid, type ChatResult, type Imported, type Report, type TestCase,
 } from './lib';
 import { CopyIcon, DownloadIcon, FilePicker, ResetIcon, UploadIcon } from './components/ui';
 import Editor from './components/Editor';
@@ -73,7 +73,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [report, cases, themeName]);
 
-  const save = (filename: string, data: string, mime: string) => {
+  const save = (filename: string, data: BlobPart, mime: string) => {
     try {
       downloadFile(filename, data, mime);
       notify('Download started: ' + filename);
@@ -87,16 +87,28 @@ export default function App() {
     if (pending) notify('Attachments are still processing. Try again in a moment.');
     return pending;
   };
-  // Clipboard can't carry the media, so the full HTML report is downloaded for attaching to the comment.
+  // Clipboard can't carry the media, so the attachments and the full HTML report are downloaded as a zip,
+  // named to match the comment, for attaching to the Jira ticket.
   const copyForJira = async () => {
     if (mediaPending()) return;
-    const file = fileBase(report) + '.html';
+    const base = fileBase(report);
+    const file = base + '.html';
     const ok = await copyText(
       buildMarkdown(report, cases, false) + `\n**Full report with attachments:** ${file} (attached)\n`,
       buildJiraHtml(report, cases) + `<p><strong>Full report with attachments:</strong> ${file} (attached)</p>`,
     );
-    save(file, buildHtml(report, cases, theme.accent), 'text/html');
-    notify(ok ? `Copied and downloaded ${file}. Paste the comment, then attach the file.` : 'Copy blocked here. Open the Markdown tab and copy manually.');
+    const files = [{ name: file, data: new TextEncoder().encode(buildHtml(report, cases, theme.accent)) }];
+    let missing = 0;
+    for (const [ci, c] of cases.entries()) {
+      for (const [i, a] of c.attachments.entries()) {
+        if (!a.src) missing++;
+        else files.push({ name: exportName(c, ci + 1, i, a), data: new Uint8Array(await (await fetch(a.src)).arrayBuffer()) });
+      }
+    }
+    save(base + '.zip', zip(files), 'application/zip');
+    if (!ok) notify('Copy blocked here. Open the Markdown tab and copy manually.');
+    else if (missing) notify(`Copied. ${missing} attachment${missing === 1 ? ' needs' : 's need'} re-attaching, so the zip is missing ${missing === 1 ? 'it' : 'them'}.`);
+    else notify(`Copied and downloaded ${base}.zip. Paste the comment, then attach the files from the zip.`);
   };
   const exportMd = () => save(fileBase(report) + '.md', buildMarkdown(report, cases, true), 'text/markdown');
   const exportHtml = () => {
@@ -175,8 +187,9 @@ export default function App() {
     notify('Report reset');
   };
 
-  const addFromChat = (drafts: CaseDraft[]) => {
-    setCases((prev) => addCases(prev, drafts));
+  const applyFromChat = (result: ChatResult) => {
+    setCases((prev) => applyChatCases(prev, result));
+    setReport((prev) => applyChatReport(prev, result));
     setView('edit');
   };
 
@@ -262,7 +275,7 @@ export default function App() {
         )}
       </main>
 
-      <ChatFab markdown={() => buildMarkdown(report, cases, false)} onAddCases={addFromChat} />
+      <ChatFab markdown={() => buildMarkdown(report, cases, false)} onResult={applyFromChat} />
       <CoffeeFab />
     </div>
   );

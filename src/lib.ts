@@ -113,6 +113,37 @@ export function addCases(cases: TestCase[], drafts: CaseDraft[]): TestCase[] {
   return [...kept, ...added];
 }
 
+export interface ChatEdit { target: string; field: string; value: string }
+export interface ChatResult { cases?: CaseDraft[]; edits?: ChatEdit[]; remove?: string[] }
+
+const CASE_FIELDS = ['caseId', 'title', 'status', 'steps', 'expected', 'actual', 'notes'];
+const REPORT_FIELDS = ['title', 'ticket', 'build', 'env', 'tester', 'date', 'summary'];
+const sameId = (a: string, b: unknown) => typeof b === 'string' && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Applies a chat reply: removes and edits existing cases first, then appends new ones. Unknown targets or fields are ignored. */
+export function applyChatCases(cases: TestCase[], r: ChatResult): TestCase[] {
+  const edits = (r.edits || []).filter((e) => e?.target !== 'report' && CASE_FIELDS.includes(e?.field) && typeof e.value === 'string');
+  let out = cases.filter((c) => !(r.remove || []).some((id) => sameId(c.caseId, id)));
+  out = out.map((c) => {
+    const patch: Partial<TestCase> = {};
+    edits.forEach((e) => {
+      if (!sameId(c.caseId, e.target)) return;
+      if (e.field !== 'status') Object.assign(patch, { [e.field]: e.value });
+      else if (STATUS_ORDER.includes(e.value as Status)) patch.status = e.value as Status;
+    });
+    return { ...c, ...patch };
+  });
+  return r.cases?.length ? addCases(out, r.cases) : out;
+}
+
+export function applyChatReport(report: Report, r: ChatResult): Report {
+  const patch: Partial<Report> = {};
+  (r.edits || []).forEach((e) => {
+    if (e?.target === 'report' && REPORT_FIELDS.includes(e.field) && typeof e.value === 'string') Object.assign(patch, { [e.field]: e.value });
+  });
+  return { ...report, ...patch };
+}
+
 export const esc = (s: unknown) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -190,10 +221,72 @@ function serialize(report: Report, cases: TestCase[]) {
   };
 }
 
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
 export function fileBase(r: Report) {
-  const base = [ticketKey(r.ticket), r.title || 'qa-report'].filter(Boolean).join('-')
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return base || 'qa-report';
+  return slug([ticketKey(r.ticket), r.title || 'qa-report'].filter(Boolean).join('-')) || 'qa-report';
+}
+
+/**
+ * Name an attachment gets in the Jira zip and in the comment that references it, e.g.
+ * "01-tc-01-2-login-error.png" (case number, case ID, attachment number, original name).
+ */
+export function exportName(c: TestCase, num: number, i: number, a: Attachment) {
+  const [, base, ext] = a.name.match(/^(.*?)(\.[^.]+)?$/)!;
+  return [String(num).padStart(2, '0'), slug(c.caseId), i + 1, slug(base).slice(0, 40)].filter(Boolean).join('-')
+    + (ext || '.' + a.type.split('/')[1]).toLowerCase();
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+  return n >>> 0;
+});
+export function crc32(b: Uint8Array) {
+  let c = ~0;
+  for (const x of b) c = CRC_TABLE[(c ^ x) & 255] ^ (c >>> 8);
+  return ~c >>> 0;
+}
+
+/** Store-only ZIP: images and videos are already compressed, so deflate would gain little. */
+// ponytail: no ZIP64, so the total must stay under 4 GB.
+export function zip(files: { name: string; data: Uint8Array }[]) {
+  const parts: BlobPart[] = [];
+  const central: BlobPart[] = [];
+  let offset = 0;
+  let dirSize = 0;
+  for (const f of files) {
+    const name = new TextEncoder().encode(f.name);
+    const crc = crc32(f.data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(6, 0x0800, true); // UTF-8 names
+    local.setUint32(14, crc, true);
+    local.setUint32(18, f.data.length, true);
+    local.setUint32(22, f.data.length, true);
+    local.setUint16(26, name.length, true);
+    const dir = new DataView(new ArrayBuffer(46));
+    dir.setUint32(0, 0x02014b50, true);
+    dir.setUint16(4, 20, true);
+    dir.setUint16(6, 20, true);
+    dir.setUint16(8, 0x0800, true);
+    dir.setUint32(16, crc, true);
+    dir.setUint32(20, f.data.length, true);
+    dir.setUint32(24, f.data.length, true);
+    dir.setUint16(28, name.length, true);
+    dir.setUint32(42, offset, true);
+    parts.push(local, name, f.data as Uint8Array<ArrayBuffer>);
+    central.push(dir, name);
+    offset += 30 + name.length + f.data.length;
+    dirSize += 46 + name.length;
+  }
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, dirSize, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end], { type: 'application/zip' });
 }
 
 /* ---------- export builders ---------- */
@@ -217,7 +310,7 @@ export function buildMarkdown(r: Report, cases: TestCase[], withData: boolean) {
     });
     out.push('');
   }
-  cases.forEach((c) => {
+  cases.forEach((c, ci) => {
     out.push('### ' + (c.caseId ? c.caseId + ': ' : '') + (c.title || 'Untitled test case'));
     out.push('**Status:** ' + c.status.toUpperCase(), '');
     const steps = splitSteps(c.steps);
@@ -227,8 +320,9 @@ export function buildMarkdown(r: Report, cases: TestCase[], withData: boolean) {
     if (c.notes?.trim()) out.push('**Notes:** ' + c.notes.trim(), '');
     if (c.attachments.length) {
       out.push('**Attachments**');
-      c.attachments.forEach((a) => {
-        out.push(/^image\//.test(a.type) ? `![${a.name}](${encodeURI(a.name)})` : `- [${a.name}](${encodeURI(a.name)})`);
+      c.attachments.forEach((a, i) => {
+        const n = exportName(c, ci + 1, i, a);
+        out.push(/^image\//.test(a.type) ? `![${n}](${encodeURI(n)})` : `- [${n}](${encodeURI(n)})`);
       });
       out.push('');
     }
@@ -262,7 +356,7 @@ export function buildJiraHtml(r: Report, cases: TestCase[]) {
     });
     h.push('</tbody></table>');
   }
-  cases.forEach((c) => {
+  cases.forEach((c, ci) => {
     const title = (c.caseId ? c.caseId + ': ' : '') + (c.title || 'Untitled test case');
     h.push(`<div data-node-type="expand" data-title="${esc(title)}">`);
     h.push('<p><strong>Status:</strong> ' + esc(c.status.toUpperCase()) + '</p>');
@@ -271,7 +365,7 @@ export function buildJiraHtml(r: Report, cases: TestCase[]) {
     if (c.expected?.trim()) h.push('<p><strong>Expected:</strong> ' + text(c.expected) + '</p>');
     if (c.actual?.trim()) h.push('<p><strong>Actual:</strong> ' + text(c.actual) + '</p>');
     if (c.notes?.trim()) h.push('<p><strong>Notes:</strong> ' + text(c.notes) + '</p>');
-    if (c.attachments.length) h.push('<p><strong>Attachments</strong></p><ul>' + c.attachments.map((a) => `<li>${esc(a.name)}</li>`).join('') + '</ul>');
+    if (c.attachments.length) h.push('<p><strong>Attachments</strong></p><ul>' + c.attachments.map((a, i) => `<li>${esc(exportName(c, ci + 1, i, a))}</li>`).join('') + '</ul>');
     h.push('</div>');
   });
   return h.join('');
@@ -472,7 +566,7 @@ export function importText(name: string, text: string): Imported {
 
 /* ---------- browser helpers ---------- */
 
-export function downloadFile(filename: string, data: string, mime: string) {
+export function downloadFile(filename: string, data: BlobPart, mime: string) {
   const url = URL.createObjectURL(new Blob([data], { type: mime }));
   const a = document.createElement('a');
   a.href = url;

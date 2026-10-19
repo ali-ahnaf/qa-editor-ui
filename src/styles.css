@@ -243,6 +243,11 @@ textarea { resize: vertical; }
 .thumb-media { height: 104px; display: flex; align-items: center; justify-content: center; background: #f2f4f7; }
 .thumb-media img, .thumb-media video { width: 100%; height: 104px; object-fit: cover; display: block; }
 .thumb-media video { background: #101828; }
+.thumb-download {
+  position: absolute; top: 6px; right: 6px; background: #ffffff; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.15);
+  opacity: 0; transition: opacity 0.15s;
+}
+.thumb:hover .thumb-download, .thumb-download:focus-visible { opacity: 1; }
 .thumb-pending { font-size: 12px; color: #475467; padding: 8px; text-align: center; }
 .thumb-caption { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; }
 .thumb-text { display: flex; flex-direction: column; min-width: 0; }
