@@ -16,7 +16,7 @@ const TOOLS: { tool: Tool; label: string; Icon: typeof EditIcon }[] = [
 ];
 
 // ponytail: full redraw on every pointer move; fine for screenshots, cache the base layer if huge images lag.
-function draw(ctx: CanvasRenderingContext2D, img: HTMLImageElement, shapes: Shape[]) {
+function draw(ctx: CanvasRenderingContext2D, img: CanvasImageSource, shapes: Shape[]) {
   ctx.drawImage(img, 0, 0);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -45,6 +45,62 @@ function draw(ctx: CanvasRenderingContext2D, img: HTMLImageElement, shapes: Shap
   }
 }
 
+type Media = HTMLImageElement | HTMLVideoElement;
+const dims = (m: Media) => (m instanceof HTMLVideoElement ? [m.videoWidth, m.videoHeight] : [m.naturalWidth, m.naturalHeight]);
+
+// Burns the shapes into every frame by playing the video into a canvas and recording it, so it takes as long as the video.
+// ponytail: real-time re-encode with MediaRecorder (slows down in a background tab); use WebCodecs if long videos need it.
+function recordVideo(src: string, w: number, h: number, shapes: Shape[], onProgress: (p: number) => void, signal: AbortSignal) {
+  return new Promise<Blob>((resolve, reject) => {
+    const v = document.createElement('video');
+    v.playsInline = true;
+    v.src = src;
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d')!;
+    // Route the sound through Web Audio so it is recorded but not played out loud.
+    const ac = new AudioContext();
+    const sound = ac.createMediaStreamDestination();
+    ac.createMediaElementSource(v).connect(sound);
+    const stream = new MediaStream([...cv.captureStream(30).getVideoTracks(), ...sound.stream.getAudioTracks()]);
+    const mimeType = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t));
+    const rec = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+    const chunks: Blob[] = [];
+    const stop = () => {
+      v.pause();
+      if (rec.state !== 'inactive') rec.stop();
+      else ac.close();
+    };
+    rec.ondataavailable = (e) => chunks.push(e.data);
+    rec.onstop = () => {
+      ac.close();
+      if (signal.aborted) reject(signal.reason);
+      else resolve(new Blob(chunks, { type: rec.mimeType.split(';')[0] }));
+    };
+    v.onended = stop;
+    v.onerror = () => {
+      stop();
+      reject(new Error('Could not play the video'));
+    };
+    signal.onabort = stop;
+    const frame = () => {
+      draw(ctx, v, shapes);
+      onProgress(v.currentTime / v.duration);
+      if (rec.state === 'recording') requestAnimationFrame(frame);
+    };
+    ac.resume();
+    v.play().then(() => {
+      if (signal.aborted) return;
+      rec.start();
+      frame();
+    }, (e) => {
+      stop();
+      reject(e);
+    });
+  });
+}
+
 interface Props {
   a: Attachment;
   onClose: () => void;
@@ -53,7 +109,8 @@ interface Props {
 
 export default function ImageEditor({ a, onClose, onSave }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const isVideo = /^video\//.test(a.type);
+  const [img, setImg] = useState<Media | null>(null);
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [redo, setRedo] = useState<Shape[]>([]);
   const [current, setCurrent] = useState<Shape | null>(null);
@@ -62,25 +119,39 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
   const [size, setSize] = useState(3);
   const [textAt, setTextAt] = useState<{ at: Pt; left: number; top: number; scale: number } | null>(null);
   const [text, setText] = useState('');
+  const [progress, setProgress] = useState<number | null>(null);
+  const render = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const i = new Image();
-    i.onload = () => setImg(i);
-    i.src = a.src;
-  }, [a.src]);
+    if (isVideo) {
+      // Shows the first frame to draw on.
+      const v = document.createElement('video');
+      v.muted = v.playsInline = true;
+      v.preload = 'auto';
+      v.onloadeddata = () => setImg(v);
+      v.src = a.src;
+    } else {
+      const i = new Image();
+      i.onload = () => setImg(i);
+      i.src = a.src;
+    }
+  }, [a.src, isVideo]);
+
+  useEffect(() => () => render.current?.abort(), []);
 
   useEffect(() => {
     const cv = canvasRef.current;
     if (!img || !cv) return;
-    if (cv.width !== img.naturalWidth) {
-      cv.width = img.naturalWidth;
-      cv.height = img.naturalHeight;
+    const [w, h] = dims(img);
+    if (cv.width !== w) {
+      cv.width = w;
+      cv.height = h;
     }
     draw(cv.getContext('2d')!, img, current ? [...shapes, current] : shapes);
   }, [img, shapes, current]);
 
   // Stroke and font sizes follow the image size, so a 4K screenshot gets marks as visible as a small one.
-  const unit = img ? Math.max(img.naturalWidth, img.naturalHeight) / 500 : 1;
+  const unit = img ? Math.max(...dims(img)) / 500 : 1;
 
   const add = (s: Shape) => {
     setShapes((prev) => [...prev, s]);
@@ -98,6 +169,7 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
   };
   const close = () => {
     if (shapes.length && !confirm('Discard your edits?')) return;
+    render.current?.abort();
     onClose();
   };
 
@@ -153,6 +225,22 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
   const save = () => {
     const cv = canvasRef.current;
     if (!cv || !img) return;
+    if (isVideo) {
+      render.current = new AbortController();
+      setProgress(0);
+      recordVideo(a.src, cv.width, cv.height, shapes, setProgress, render.current.signal)
+        .then((blob) => {
+          const fr = new FileReader();
+          fr.onload = () => onSave(String(fr.result), blob.type);
+          fr.readAsDataURL(blob);
+        })
+        .catch((e) => {
+          if (e?.name === 'AbortError') return;
+          setProgress(null);
+          alert('Could not save the video: ' + (e?.message || e));
+        });
+      return;
+    }
     // Canvas can't write GIF; anything that isn't JPEG becomes PNG.
     const type = a.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
     onSave(cv.toDataURL(type, 0.92), type);
@@ -183,7 +271,9 @@ export default function ImageEditor({ a, onClose, onSave }: Props) {
         </div>
         <div className="btn-group img-editor-end">
           <button type="button" className="btn-sm" onClick={close}>Cancel</button>
-          <button type="button" className="btn btn-primary" disabled={!img} onClick={save}>Save</button>
+          <button type="button" className="btn btn-primary" disabled={!img || progress !== null} onClick={save}>
+            {progress === null ? 'Save' : `Rendering ${Math.round(progress * 100)}%`}
+          </button>
           <button type="button" className="icon-btn" aria-label="Close editor" title="Close" onClick={close}>
             <CloseIcon />
           </button>

@@ -162,7 +162,7 @@ export default function CaseCard({ c, num, patch, onMoveUp, onMoveDown, onDuplic
                           <span className="thumb-name">{a.name}</span>
                           <span className="thumb-meta">{(isVideo ? 'Video' : 'Image') + ' · ' + fileSize(a.size)}</span>
                         </span>
-                        {ready && !isVideo && (
+                        {ready && (
                           <button
                             type="button"
                             className="icon-btn icon-btn-sm thumb-edit"
@@ -196,7 +196,7 @@ export default function CaseCard({ c, num, patch, onMoveUp, onMoveDown, onDuplic
           a={editing}
           onClose={() => setEditing(null)}
           onSave={(src, type) => {
-            const ext = type === 'image/jpeg' ? '.jpg' : '.png';
+            const ext = '.' + (type === 'image/jpeg' ? 'jpg' : type.split('/')[1]);
             patch((x) => ({
               attachments: x.attachments.map((y) =>
                 y.id === editing.id
